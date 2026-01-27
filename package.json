@@ -1,0 +1,22 @@
+{
+   "scripts": {
+      "backend": "cd backend && npm run dev",
+      "frontend": "cd frontend && npm run dev",
+      "dev": "concurrently \"npm run backend\" \"npm run frontend\""
+   },
+   "dependencies": {
+      "choco": "^0.2.1",
+      "file-saver": "^2.0.5",
+      "html5-qrcode": "^2.3.8",
+      "install": "^0.13.0",
+      "jwt-decode": "^4.0.0",
+      "mkcert": "^3.2.0",
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0",
+      "react-icons": "^5.5.0",
+      "xlsx-js-style": "^1.2.0"
+   },
+   "devDependencies": {
+      "concurrently": "^9.2.1"
+   }
+}
