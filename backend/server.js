@@ -210,6 +210,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 
 const nodemailer = require("nodemailer");
+const { error } = require("console");
 
 // Middleware to check if user can access a step
 const checkStepAccess = (requiredStep) => {
@@ -10217,8 +10218,6 @@ app.get("/enrolled_courses/:userId/:currId", async (req, res) => {
   }
 });
 
-
-
 app.post("/add-all-to-enrolled-courses", async (req, res) => {
   const { subject_id, user_id, curriculumID, departmentSectionID, year_level } = req.body;
   console.log("Received request:", { subject_id, user_id, curriculumID, departmentSectionID });
@@ -17911,6 +17910,53 @@ app.get("/api/signature-latest", async (req, res) => {
   }
 });
 
+app.delete("/delete_subject/:id", async (req,res) => {
+  const {id} = req.params
+  try{
+    if(!id){
+      return res.status(400).json({error: "Please Select a Subject to Delete"});
+    }
+
+    await db3.execute("DELETE FROM enrolled_subject WHERE id = ?", [id]);
+    res.json({message: "Deleted Successfully"})
+  }catch(err){
+    console.error("Error in Deleting a suject", err);
+    res.status(500).json({error: "Error in Deleting a subject", err});
+  }
+})
+
+app.post("/insert_subject", async (req, res) => {
+  const { course_id, student_number, currId, active_school_year_id } = req.body;
+
+  if (!course_id || !student_number || !currId || !active_school_year_id) {
+    return res.status(400).json({ error: "Missing parameters" });
+  }
+
+  console.log("Course: ", course_id);
+  console.log("Student Number: ", student_number);
+  console.log("Curriculum: ", currId);
+  console.log("School Year", active_school_year_id);
+
+  try {
+    const sql = `
+      INSERT INTO enrolled_subject
+        (course_id, student_number, curriculum_id, active_school_year_id)
+      VALUES (?, ?, ?, ?)
+    `;
+
+    await db3.execute(sql, [
+      course_id,
+      student_number,
+      currId,
+      active_school_year_id,
+    ]);
+
+    res.json({ message: "Course added successfully" });
+  } catch (err) {
+    console.error("Insert subject error:", err);
+    res.status(500).json({ error: "Failed to add subject" });
+  }
+});
 
 const PORT = process.env.WEB_PORT || 5000;
 const HOST = getDbHost();

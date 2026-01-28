@@ -87,13 +87,16 @@ router.get("/student-info/:student_number", async (req, res) => {
     const [rows] = await db3.query(
       `
         SELECT DISTINCT
+          es.id,
+          cct.curriculum_id,
+          sy.id as active_school_year_id, 
           pgt.program_description, 
           yrt_cur.year_description, 
           yrt_sy.year_description AS current_year, 
           smt.semester_description,
           snt.student_number,
-          es.final_grade,
-          es.en_remarks,
+          IFNULL(es.final_grade, "-") as final_grade,
+          IFNULL(es.en_remarks, 0) as en_remarks,
           ylt.year_level_description, 
           cst.course_id,
 		      cst.course_code,
@@ -111,9 +114,11 @@ router.get("/student-info/:student_number", async (req, res) => {
           INNER JOIN year_level_table ylt ON sst.year_level_id = ylt.year_level_id 
           INNER JOIN semester_table smt ON sy.semester_id = smt.semester_id
           INNER JOIN course_table cst ON es.course_id = cst.course_id
-          WHERE es.student_number = ? ORDER BY ylt.year_level_id;
+          WHERE es.student_number = ? ORDER BY ylt.year_level_id AND es.id;
       `, [student_number]
     )
+
+    console.log("Curriculum ID: ", rows[0].curriculum_id);
 
     if(rows.length === 0){
       return res.status(400).json({error: "student record is not found"});
@@ -127,7 +132,7 @@ router.get("/student-info/:student_number", async (req, res) => {
 })
 
 router.post("/update_student", upload.single("profile_picture"), async (req, res) => {
-  const { person_id } = req.body;
+  const { person_id } = req.body; 
   if (!person_id || !req.file) {
     return res.status(400).send("Missing person_id or file.");
   }

@@ -1,94 +1,194 @@
 import React, {useState, useEffect, useContext} from 'react';
 import { SettingsContext } from "../App";
 import axios from 'axios';
-import {Box, Button, Typography, TextField, Paper, TableContainer, Table, TableHead, TableBody, TableRow, TableCell} from '@mui/material';
+import {Box, Button, Typography, TextField, Paper, TableContainer, Table, TableHead, TableBody, TableRow, TableCell, Snackbar, Alert, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Select, MenuItem} from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import API_BASE_URL from '../apiConfig';
 
 const StudentGradeFile = () => {
     const settings = useContext(SettingsContext);
-    const [titleColor, setTitleColor] = useState("#000000");
-    const [subtitleColor, setSubtitleColor] = useState("#555555");
-    const [borderColor, setBorderColor] = useState("#000000");
-    const [mainButtonColor, setMainButtonColor] = useState("#1976d2");
 
-    useEffect(() => {
-        if (!settings) return;
-        if (settings.title_color) setTitleColor(settings.title_color);
-        if (settings.subtitle_color) setSubtitleColor(settings.subtitle_color);
-        if (settings.border_color) setBorderColor(settings.border_color);
-        if (settings.main_button_color) setMainButtonColor(settings.main_button_color);
-    }, [settings]);
+    const [titleColor, setTitleColor] = useState("#000");
+    const [subtitleColor, setSubtitleColor] = useState("#555");
+    const [borderColor, setBorderColor] = useState("#000");
+    const [mainButtonColor, setMainButtonColor] = useState("#1976d2");
 
     const [searchQuery, setSearchQuery] = useState("");
     const [studentInfo, setStudentInfo] = useState(null);
     const [studentGradeList, setStudentGradeList] = useState([]);
     const [campusFilter, setCampusFilter] = useState(1);
+    const [openAddSubjectDialog, setOpenAddSubjectDialog] = useState(false);
+    const [courseList, setCourseList] = useState([]);
+    const [selectedCourse, setSelectedCourse] = useState("");
+    const [loadingCourses, setLoadingCourses] = useState(false);
+
+    const [snackbar, setSnackbar] = useState({
+        open: false,
+        message: "",
+        severity: "success",
+    });
+
+    const [openDialog, setOpenDialog] = useState(false);
+    const [selectedSubjectId, setSelectedSubjectId] = useState(null);
+    const [selectedTermContext, setSelectedTermContext] = useState(null);
+
+    useEffect(() => {
+        if (!settings) return;
+        settings.title_color && setTitleColor(settings.title_color);
+        settings.subtitle_color && setSubtitleColor(settings.subtitle_color);
+        settings.border_color && setBorderColor(settings.border_color);
+        settings.main_button_color && setMainButtonColor(settings.main_button_color);
+    }, [settings]);
 
     const fetchStudent = async () => {
         try {
             const res = await axios.get(
-            `${API_BASE_URL}/student/student-info`,
-            { params: { searchQuery, campus: campusFilter } }
+                `${API_BASE_URL}/student/student-info`,
+                { params: { searchQuery, campus: campusFilter } }
             );
             setStudentInfo(res.data);
-        } catch (err) {
+
+            setSnackbar({
+                open: true,
+                message: "Student is found",
+                severity: "success",
+            });
+        } catch {
             setStudentInfo(null);
+            setSnackbar({
+                open: true,
+                message: "Student is not found or existed in the record",
+                severity: "error",
+            });
         }
     };
 
     const fetchStudentGrade = async (student_number) => {
-        try{
+        try {
             const res = await axios.get(
                 `${API_BASE_URL}/student/student-info/${student_number}`
-            )
-            setStudentGradeList(res.data);
-        }catch (err) {
-            setStudentGradeList(null);
+            );
+            setStudentGradeList(res.data || []);
+        } catch {
+            setStudentGradeList([]);
         }
-    }
+    };
 
-    const groupedGrades = studentGradeList.reduce((acc, curr) => {
-        const yearLevel = curr.year_level_description;
-        const semester = curr.semester_description;
+    const fetchCourses = async () => {
+        if (!studentGradeList?.length) return;
 
-        if (!acc[yearLevel]) acc[yearLevel] = {};
-        if (!acc[yearLevel][semester]) acc[yearLevel][semester] = [];
-
-        acc[yearLevel][semester].push(curr);
-
-        return acc;
-    }, {});
+        const currId = studentGradeList[0].curriculum_id;
+        try {
+            setLoadingCourses(true);
+            const res = await axios.get(`${API_BASE_URL}/courses/${currId}`);
+            setCourseList(res.data);
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: "Failed to load courses",
+                severity: "error",
+            });
+        } finally {
+            setLoadingCourses(false);
+        }
+    };
 
     useEffect(() => {
-        if (!searchQuery) {
-            setStudentInfo(null);
-            return;
+        if (!searchQuery || campusFilter === null) {
+        setStudentInfo(null);
+        return;
         }
 
-        if (!campusFilter) {
-            setStudentInfo(null);
-            return;
-        }
-
-        const delay = setTimeout(() => {
-            fetchStudent();
-        }, 1200);
-
+        const delay = setTimeout(fetchStudent, 1200);
         return () => clearTimeout(delay);
     }, [searchQuery, campusFilter]);
 
     useEffect(() => {
-        if (studentInfo && studentInfo.length > 0) {
+        if (studentInfo?.length) {
             fetchStudentGrade(studentInfo[0].student_number);
         } else {
             setStudentGradeList([]);
         }
     }, [studentInfo]);
 
-    const sortSemesters = (semesters) => {
-        const order = ["First Semester", "Second Semester", "Summer"];
-        return semesters.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const groupedGrades = studentGradeList.reduce((acc, curr) => {
+        const year = curr.year_level_description;
+        const sem = curr.semester_description;
+
+        acc[year] ??= {};
+        acc[year][sem] ??= [];
+        acc[year][sem].push(curr);
+
+        return acc;
+    }, {});
+
+    const sortSemesters = (list) =>
+        ["First Semester", "Second Semester", "Summer"].filter((s) =>
+        list.includes(s)
+        );
+
+    const confirmDelete = (id) => {
+        setSelectedSubjectId(id);
+        setOpenDialog(true);
+    };
+
+    const handleAddSubject = async () => {
+        if (!selectedTermContext) return;
+
+        try {
+            await axios.post(`${API_BASE_URL}/insert_subject`, {
+                course_id: selectedCourse,
+                student_number: studentGradeList[0].student_number,
+                currId: studentGradeList[0].curriculum_id,
+                active_school_year_id: selectedTermContext.active_school_year_id,
+            });
+
+            setSnackbar({
+                open: true,
+                message: "Subject added successfully",
+                severity: "success",
+            });
+
+            setOpenAddSubjectDialog(false);
+            setSelectedCourse("");
+            setSelectedTermContext(null);
+
+            // refresh grades
+            fetchStudentGrade(studentGradeList[0].student_number);
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: "Failed to add subject",
+                severity: "error",
+            });
+        }
+    };
+
+    const handleDelete = async () => {
+        try {
+            await axios.delete(
+                `${API_BASE_URL}/delete_subject/${selectedSubjectId}`
+            );
+
+            setStudentGradeList((prev) =>
+                prev.filter((s) => s.id !== selectedSubjectId)
+            );
+
+            setSnackbar({
+                open: true,
+                message: "Subject deleted successfully",
+                severity: "success",
+            });
+        } catch {
+            setSnackbar({
+                open: true,
+                message: "Failed to delete subject",
+                severity: "error",
+            });
+        } finally {
+            setOpenDialog(false);
+            setSelectedSubjectId(null);
+        }
     };
 
     return(
@@ -148,6 +248,7 @@ const StudentGradeFile = () => {
                     <option value="0">Cavite</option>
                 </TextField>
             </Box>
+
             <TableContainer component={Paper} sx={{ width: '100%', border: `2px solid ${borderColor}`, }}>
                 <Table>
                     <TableHead sx={{ backgroundColor: mainButtonColor }}>
@@ -301,11 +402,8 @@ const StudentGradeFile = () => {
                     </TableHead>
                 </Table>
                 <Box sx={{display: "flex", alignItems: "center", gap: "1rem", width: "100%", justifyContent: "end", padding: "0rem 1.5rem", marginTop: "1rem"}}>
-                    <Button variant='contained'>DELETE</Button>
-                    <Button variant='contained'>ADD SUBJECTS</Button>
                     <Button variant='contained'>ADD TRANSFEREE SUBJECTS</Button>
                     <Button variant='contained'>EXPORT GRADES</Button>
-                    <Button variant='contained'>SAVE</Button>
                     <Button variant='contained'>VIEW</Button>
                 </Box>
             </TableContainer>
@@ -363,22 +461,43 @@ const StudentGradeFile = () => {
                                     </TableRow>
                                 </TableHead>
                             </Table>
+                            <Box sx={{display: "flex", alignItems: "center", gap: "1rem", width: "100%", justifyContent: "end", padding: "0rem 1.5rem", marginTop: "1rem"}}>
+                                <Button 
+                                    variant="contained"
+                                    onClick={() => {
+                                        const termData = groupedGrades[yearLevel][semester][0];
+
+                                        setSelectedTermContext({
+                                            active_school_year_id: termData.active_school_year_id
+                                        });
+
+                                        fetchCourses();
+                                        setOpenAddSubjectDialog(true);
+                                    }}
+                                >
+                                    ADD SUBJECTS
+                                </Button>
+                                <Button variant='contained'>SAVE</Button>
+                            </Box>
                         </TableContainer>
                         <Table>
                             <TableHead>
                                 <TableRow>
                                     <TableCell sx={{borderTop: `solid 1px ${borderColor}`, borderBottom: `solid 1px ${borderColor}`,width: "2%"}}>#</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "8%"}}>Course Code</TableCell>
-                                    <TableCell sx={{border: `solid 1px ${borderColor}`, width: "11%", textAlign: "center"}}>Equiv. Course Code</TableCell>
+                                    {/* <TableCell sx={{border: `solid 1px ${borderColor}`, width: "11%", textAlign: "center"}}>Equiv. Course Code</TableCell> */}
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "9%", textAlign: "center"}}>Professor</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "40%"}}>Course Description</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "2%"}}>Units</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "5%", textAlign: "center"}}>Section Code</TableCell>
-                                    <TableCell sx={{border: `solid 1px ${borderColor}`, width: "5%", textAlign: "center"}}>Final Grade</TableCell>
+                                    <TableCell sx={{border: `solid 1px ${borderColor}`, width: "6%", textAlign: "center"}}>Final Grade</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "3%", textAlign: "center"}}>Re-Exam</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "5%", textAlign: "center"}}>Grade Status</TableCell>
                                     <TableCell sx={{border: `solid 1px ${borderColor}`, width: "5%", textAlign: "center"}}>Faculty Status</TableCell>
-                                    <TableCell sx={{border: `solid 1px ${borderColor}`, borderRight: "none", width: "5%", textAlign: "center"}}>Remarks</TableCell>
+                                    <TableCell sx={{border: `solid 1px ${borderColor}`, width: "5%", textAlign: "center"}}>Remarks</TableCell>
+                                    <TableCell sx={{border: `solid 1px ${borderColor}`, borderRight: "none", width: "5%", textAlign: "center"}}>
+                                       Action
+                                    </TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -386,12 +505,14 @@ const StudentGradeFile = () => {
                                     <TableRow key={course.course_id}>
                                         <TableCell>{index + 1}</TableCell>
                                         <TableCell>{course.course_code}</TableCell>
-                                        <TableCell sx={{width: "11%", textAlign: "center"}}>{course.course_code}</TableCell>
+                                        {/* <TableCell sx={{width: "11%", textAlign: "center"}}>{course.course_code}</TableCell> */}
                                         <TableCell></TableCell>
                                         <TableCell>{course.course_description}</TableCell>
                                         <TableCell sx={{width: "2%", textAlign: "center"}}>{course.course_unit || 0}</TableCell>
                                         <TableCell></TableCell>
-                                        <TableCell>{course.final_grade ?? "-"}</TableCell>
+                                        <TableCell>
+                                            <TextField value={course.final_grade ?? "-"}/>
+                                        </TableCell>
                                         <TableCell></TableCell>
                                         <TableCell>
                                         {course.en_remarks === 1
@@ -408,10 +529,21 @@ const StudentGradeFile = () => {
                                         </TableCell>
                                         <TableCell></TableCell>
                                         <TableCell></TableCell>
+                                        <TableCell>
+                                            <Button
+                                                color="error"
+                                                size="small"
+                                                variant='contained'
+                                                sx={{background: mainButtonColor}}
+                                                onClick={() => confirmDelete(course.id)}
+                                            >
+                                                DELETE
+                                            </Button>
+                                        </TableCell>
                                     </TableRow>
                                 ))}
                                 <TableRow>
-                                    <TableCell colSpan={5} sx={{ textAlign: "right", fontWeight: "700" }}>
+                                    <TableCell colSpan={4} sx={{ textAlign: "right", fontWeight: "700" }}>
                                     TOTAL UNITS:
                                     </TableCell>
                                     <TableCell sx={{textAlign: "center", fontWeight: "700"}}>
@@ -428,6 +560,73 @@ const StudentGradeFile = () => {
                     ))}
                 </Box>
             ))}
+
+            <Dialog
+                open={openAddSubjectDialog}
+                onClose={() => setOpenAddSubjectDialog(false)}
+                fullWidth
+                maxWidth="sm"
+            >
+                <DialogTitle>Add Subject</DialogTitle>
+
+                <DialogContent>
+                    <DialogContentText sx={{ mb: 2 }}>
+                        Select a subject to add for this student.
+                    </DialogContentText>
+
+                    <TextField
+                        select
+                        fullWidth
+                        label="Course"
+                        value={selectedCourse}
+                        onChange={(e) => setSelectedCourse(e.target.value)}
+                        disabled={loadingCourses}
+                    >
+                        {courseList.map((course) => (
+                            <MenuItem key={course.course_id} value={course.course_id}>
+                                {course.course_code} - {course.course_description}
+                            </MenuItem>
+                        ))}
+                    </TextField>
+                </DialogContent>
+
+                <DialogActions>
+                    <Button onClick={() => setOpenAddSubjectDialog(false)}>
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="contained"
+                        disabled={!selectedCourse}
+                        onClick={handleAddSubject}
+                    >
+                        Add
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={openDialog} onClose={() => setOpenDialog(false)}>
+                <DialogTitle>Delete Subject</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Are you sure you want to delete this subject?
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+                    <Button color="error" onClick={handleDelete}>
+                        Delete
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={3000}
+                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+                onClose={() => setSnackbar({ ...snackbar, open: false })}
+            >
+                <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
+            </Snackbar>
         </Box>
     )
 }
