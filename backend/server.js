@@ -17,14 +17,14 @@ const http = require("http").createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(http, {
   cors: {
-    origin: ["http://localhost:5173", "http://192.168.50.81:5173"],
+    origin: ["http://localhost:5173", "http://192.168.0.180:5173"],
     methods: ["GET", "POST"]
   }
 });
 
 app.use(express.json());
 app.use(cors({
-  origin: ["http://localhost:5173", "http://192.168.50.81:5173"],  // ✅ Explicitly allow Vite dev server
+  origin: ["http://localhost:5173", "http://192.168.0.180:5173"],  // ✅ Explicitly allow Vite dev server
   credentials: true                  // ✅ Allow credentials (cookies, auth)
 }));
 
@@ -624,8 +624,8 @@ app.post("/register", async (req, res) => {
     }
 
     // QR Codes
-    const qrData = `192.168.50.81:5173/examination_profile/${applicant_number}`;
-    const qrData2 = `192.168.50.81:5173/applicant_profile/${applicant_number}`;
+    const qrData = `192.168.0.180:5173/examination_profile/${applicant_number}`;
+    const qrData2 = `192.168.0.180:5173/applicant_profile/${applicant_number}`;
     const qrFilename = `${applicant_number}_qrcode.png`;
     const qrFilename2 = `${applicant_number}_qrcode2.png`;
 
@@ -5000,7 +5000,7 @@ app.post("/login_applicant", async (req, res) => {
       );
 
       // Generate QR code
-      const qrData = `192.168.50.81:5173/examination_profile/${applicantNumber}`;
+      const qrData = `192.168.0.180:5173/examination_profile/${applicantNumber}`;
       qrFilename = `${applicantNumber}_qrcode.png`;
       const qrPath = path.join(__dirname, "uploads", qrFilename);
 
@@ -6400,7 +6400,7 @@ Your temporary password is: ${tempPassword}
 You may change your password and keep it secure.
 
 👉 Click the link below to log in:
-192.168.50.81:5173/login
+192.168.0.180:5173/login
 `.trim(),
       };
 
@@ -13900,7 +13900,18 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "Missing required metadata from Excel" });
     }
 
-    // --- Step 2: DB lookups for program/year ---
+    // --- Step 2: Check if the student exists ---
+    const [checkIfStudentExist] = await db3.query(
+      "SELECT * FROM student_numbering_table WHERE student_number = ?",
+      [studentNumber]
+    );
+    if (checkIfStudentExist.length === 0) {
+      return res.status(400).json({
+        error: `Student ${studentNumber} is not found. Please double check if this student exists`
+      });
+    }
+
+    // --- Step 3: DB lookups for program/year/curriculum ---
     const [[yearRow]] = await db3.query(
       "SELECT year_id FROM year_table WHERE year_description = ?",
       [year_description]
@@ -13919,7 +13930,7 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
     );
     if (!curriculum) return res.status(400).json({ error: "No matching curriculum found" });
 
-    // --- Step 3: Process each School Year + Semester block ---
+    // --- Step 4: Process each School Year + Semester block ---
     const results = [];
     let currentSY = null;
     let subjects = [];
@@ -13927,15 +13938,12 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
     for (const row of rows) {
       const text = String(row.A || "").trim();
 
-      // Detect new "School Year" row
       if (/^School Year/i.test(text)) {
-        // If we already collected subjects for previous block, save them
         if (currentSY && subjects.length > 0) {
           results.push({ ...currentSY, subjects });
           subjects = [];
         }
 
-        // Extract School Year + Semester
         const syMatch = text.match(/School Year:\s*(\d{4})-(\d{4})/i);
         const normalizedSchoolYear = syMatch ? syMatch[1] : null;
 
@@ -13945,9 +13953,7 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
         else if (/summer/i.test(text)) normalizedSemester = "Summer";
 
         currentSY = { normalizedSchoolYear, normalizedSemester };
-      }
-      // Detect Subject rows
-      else if (currentSY && row.A && !/^Subject Code/i.test(text)) {
+      } else if (currentSY && row.A && !/^Subject Code/i.test(text)) {
         const finalGradeRaw = String(row.D || "").trim();
         let finalGrade = 0.0;
         let enRemark = 0;
@@ -13989,8 +13995,58 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
 
     console.log("📘 Parsed results:", results);
 
-    // --- Step 4: Insert/Update per block ---
-    let totalInserted = 0, totalUpdated = 0;
+    // --- Step 5: Count completed semesters ---
+    let latestOngoing = null;
+    const completedBySchoolYear = {};
+
+    for (const block of results) {
+      const { normalizedSchoolYear, normalizedSemester, subjects } = block;
+
+      if (!["First Semester", "Second Semester"].includes(normalizedSemester)) continue;
+
+      const hasPassed = subjects.some(s => s.en_remark === 1);
+      const hasAllInvalid = subjects.every(
+        s => s.en_remark === 2 || s.en_remark === 3
+      );
+
+      const isCompleted = hasPassed && !hasAllInvalid;
+      const isOngoing = subjects.every(
+        s => s.final_grade === 0 && s.en_remark === 0
+      );
+
+      if (isCompleted) {
+        if (!completedBySchoolYear[normalizedSchoolYear]) {
+          completedBySchoolYear[normalizedSchoolYear] = new Set();
+        }
+        completedBySchoolYear[normalizedSchoolYear].add(normalizedSemester);
+      }
+
+      if (isOngoing) {
+        latestOngoing = {
+          schoolYear: normalizedSchoolYear,
+          semester: normalizedSemester
+        };
+      }
+    }
+
+    const sortedSchoolYears = Object.keys(completedBySchoolYear).sort();
+    let runningYearLevel = 0;
+
+    const yearLevelPerSY = [];
+
+    for (const sy of sortedSchoolYears) {
+      const completedSemCount = completedBySchoolYear[sy].size;
+
+      if (completedSemCount > 0) {
+        runningYearLevel++;
+        yearLevelPerSY.push({ schoolYear: sy, yearLevel: runningYearLevel });
+      }
+    }
+
+    // --- Step 6: Insert/Update per block ---
+    let totalInserted = 0,
+      totalUpdated = 0;
+
     for (const block of results) {
       const { normalizedSchoolYear, normalizedSemester, subjects } = block;
 
@@ -14015,6 +14071,7 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
       if (!activeYear) continue;
 
       const active_school_year_id = activeYear.id;
+      console.log("Active Schhol Year : ", active_school_year_id);
 
       for (const subj of subjects) {
         if (!subj.course_code) continue;
@@ -14056,8 +14113,8 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
               curriculum.curriculum_id,
               course.course_id,
               active_school_year_id,
-              0.0,
-              0.0,
+              0,
+              0,
               subj.final_grade,
               subj.en_remark,
               req.body.department_section_id || 0,
@@ -14070,14 +14127,92 @@ app.post("/api/import-xlsx", upload.single("file"), async (req, res) => {
       }
     }
 
+    // --- Step 7: Update student year level per semester ---
+    for (const entry of yearLevelPerSY) {
+      const { schoolYear, yearLevel } = entry;
+
+      // Loop through both semesters
+      for (const sem of ["First Semester", "Second Semester"]) {
+        const [[schoolYearRow]] = await db3.query(
+          "SELECT year_id FROM year_table WHERE year_description = ?",
+          [schoolYear]
+        );
+        if (!schoolYearRow) continue;
+
+        const [[semesterRow]] = await db3.query(
+          "SELECT semester_id FROM semester_table WHERE semester_description = ?",
+          [sem]
+        );
+        if (!semesterRow) continue;
+
+        const [[activeSY]] = await db3.query(
+          `SELECT id FROM active_school_year_table WHERE year_id = ? AND semester_id = ?`,
+          [schoolYearRow.year_id, semesterRow.semester_id]
+        );
+        if (!activeSY) continue;
+
+        await db3.query(
+          `
+          INSERT INTO student_status_table
+            (student_number, active_curriculum, enrolled_status, year_level_id, active_school_year_id)
+          VALUES (?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            year_level_id = VALUES(year_level_id)
+          `,
+          [
+            studentNumber,
+            curriculum.curriculum_id,
+            1,
+            yearLevel,
+            activeSY.id
+          ]
+        );
+      }
+    }
+
+    if (latestOngoing) {
+      const [[schoolYearRow]] = await db3.query(
+        "SELECT year_id FROM year_table WHERE year_description = ?",
+        [latestOngoing.schoolYear]
+      );
+
+      const [[semesterRow]] = await db3.query(
+        "SELECT semester_id FROM semester_table WHERE semester_description = ?",
+        [latestOngoing.semester]
+      );
+
+      const [[activeSY]] = await db3.query(
+        "SELECT id FROM active_school_year_table WHERE year_id = ? AND semester_id = ?",
+        [schoolYearRow.year_id, semesterRow.semester_id]
+      );
+
+      await db3.query(
+        `
+        INSERT INTO student_status_table
+          (student_number, active_curriculum, enrolled_status, year_level_id, active_school_year_id)
+        VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE enrolled_status = VALUES(enrolled_status)
+        `,
+        [
+          studentNumber,
+          curriculum.curriculum_id,
+          1, // ongoing
+          runningYearLevel + 1, // current year level
+          activeSY.id
+        ]
+      );
+    }
+
     res.json({
       success: true,
       updated: totalUpdated,
       inserted: totalInserted,
       studentNumber,
       program_code,
-      year_description
+      year_description,
+      highestYearLevel: runningYearLevel
     });
+
   } catch (err) {
     console.error("❌ Excel import error:", err);
     res.status(500).json({ error: "Failed to import Excel" });

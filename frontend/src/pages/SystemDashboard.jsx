@@ -200,10 +200,24 @@ const SystemDashboardPanel = () => {
         { title: "SCHOOL YEAR PANEL", link: "/school_year_panel", icon: DateRange, page_id: 55 },
       ],
     },
-
-
+    {
+      label: "SYSTEM CONFIGURATION",
+      items: [
+        { title: "SCHOOL YEAR AND SEMESTER", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "GRADE POSTING", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "CUT-OFF REGISTRATION", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "CURRICULUM EVALUATION DISPLAY", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "STUDENT ENROLLMENT CUT OFF", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "REGISTRATION PERIODS", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "NAME AND DESIGNATION SIGNATURE", link: "/signature_upload", icon: HelpOutlineIcon, page_id: 114 },
+        { title: "FACULTY LOADING CUT OFF", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "OVERDUE INC FINAL GRADE", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "SECTION OFFERING CUT OFF", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "REGISTRATION FORM NO.", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+        { title: "BATCH UPDATE (STUDENT ENROLLMENT)", link: "/evaluation_crud", icon: HelpOutlineIcon, page_id: 23 },
+      ],
+    },
   ];
-
 
   if (loading || hasAccess === null)
     return <LoadingOverlay open={loading} message="Loading..." />;

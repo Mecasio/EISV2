@@ -209,7 +209,7 @@ import Settings from './superadmin/Settings';
 import SuperAdminRoomRegistration from './superadmin/SuperAdminRoomRegistration';
 import API_BASE_URL from "./apiConfig";
 import CollegeScheduleChecker from "./registrar/CollegeScheduleChecker";
-
+import StudentGradeFile from "./superadmin/StudentGradeFile";
 // ✅ Create a Context so all components can access settings
 export const SettingsContext = createContext(null);
 
@@ -535,7 +535,7 @@ function App() {
                     <Route path="/student_office_of_the_registrar" element={<ProtectedRoute allowedRoles={['student']}><StudentOfficeOfTheRegistrar /></ProtectedRoute>} />
                     <Route path="/student_admission_services" element={<ProtectedRoute allowedRoles={['student']} ><StudentAdmissionServices /></ProtectedRoute>} />
                     <Route path="/student_form_process" element={<ProtectedRoute allowedRoles={['student', 'registrar', 'applicant']}><StudentAdmissionFormProcess /></ProtectedRoute>} />
-
+                    <Route path="/student_grade_file" element={<ProtectedRoute><StudentGradeFile /></ProtectedRoute>} />
 
                     {/*Public Examination Profile */}
                     <Route path="/applicant_profile" element={<ApplicantProfile />} />
